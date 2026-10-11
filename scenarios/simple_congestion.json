@@ -1,0 +1,88 @@
+{
+  "nodes": [
+    {
+      "id": "S1",
+      "label": "Sender 1",
+      "type": "sender",
+      "x": 100.0,
+      "y": 200.0,
+      "buffer_capacity": 20,
+      "drop_policy": "tail_drop",
+      "ecn_threshold": 0.7,
+      "protocol": "reno",
+      "mss": 1000,
+      "initial_cwnd": 1.0,
+      "initial_ssthresh": 32.0,
+      "max_cwnd": 128.0,
+      "app_rate_bps": 0.0,
+      "start_time": 0.0,
+      "dest_id": "Rcv1",
+      "rwnd": 16.0,
+      "receiver_rwnd": 64.0
+    },
+    {
+      "id": "Router1",
+      "label": "Edge Router",
+      "type": "router",
+      "x": 350.0,
+      "y": 200.0,
+      "buffer_capacity": 20,
+      "drop_policy": "tail_drop",
+      "ecn_threshold": 0.7,
+      "protocol": "reno",
+      "mss": 1000,
+      "initial_cwnd": 1.0,
+      "initial_ssthresh": 32.0,
+      "max_cwnd": 128.0,
+      "app_rate_bps": 0.0,
+      "start_time": 0.0,
+      "dest_id": null,
+      "rwnd": 64.0,
+      "receiver_rwnd": 64.0
+    },
+    {
+      "id": "Rcv1",
+      "label": "Receiver 1",
+      "type": "receiver",
+      "x": 600.0,
+      "y": 200.0,
+      "buffer_capacity": 20,
+      "drop_policy": "tail_drop",
+      "ecn_threshold": 0.7,
+      "protocol": "reno",
+      "mss": 1000,
+      "initial_cwnd": 1.0,
+      "initial_ssthresh": 32.0,
+      "max_cwnd": 128.0,
+      "app_rate_bps": 0.0,
+      "start_time": 0.0,
+      "dest_id": null,
+      "rwnd": 64.0,
+      "receiver_rwnd": 16.0
+    }
+  ],
+  "links": [
+    {
+      "id": "L1",
+      "source": "S1",
+      "target": "Router1",
+      "bandwidth_bps": 10000000.0,
+      "propagation_delay_s": 0.01,
+      "loss_rate": 0.0,
+      "is_active": true,
+      "is_bottleneck": false,
+      "cost": 1.0
+    },
+    {
+      "id": "L2",
+      "source": "Router1",
+      "target": "Rcv1",
+      "bandwidth_bps": 10000000.0,
+      "propagation_delay_s": 0.01,
+      "loss_rate": 0.0,
+      "is_active": true,
+      "is_bottleneck": false,
+      "cost": 1.0
+    }
+  ]
+}
