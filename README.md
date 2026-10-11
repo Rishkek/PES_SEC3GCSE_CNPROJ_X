@@ -340,20 +340,53 @@ pytest -o pythonpath=backend backend/tests
 ## 10. Quick Start & Deployment
 
 ### Prerequisites
-* Python 3.10+ (Python 3.12+ recommended)
-* Node.js 18+ and npm
+* **Windows 10/11** (or Linux/macOS for manual setup)
+* **Python 3.10+** (Python 3.12+ recommended)
+* **Node.js 18+** and **npm**
 
-### Local Development Setup
+---
 
-#### 1. Backend Server
+### ⚡ Option A: 1-Click Automated Setup (`setup.exe`)
+
+For Windows systems, a native standalone installer `setup.exe` is included in the project root:
+
+1. **Double-click `setup.exe`** (or execute `.\setup.exe` in PowerShell / Command Prompt).
+2. The installer automatically:
+   - ✅ Detects valid Python 3.10+ installation (bypassing Microsoft Store stubs).
+   - ✅ Detects Node.js and `npm`.
+   - ✅ Creates and configures the Python virtual environment (`.venv`).
+   - ✅ Upgrades `pip` and installs all dependencies from `requirements.txt`.
+   - ✅ Installs frontend packages with `npm install` inside `frontend/`.
+   - ✅ Runs the complete test suite (`pytest`) to verify engine integrity.
+   - 🚀 Offers a 1-key prompt to launch both FastAPI and Vite servers immediately in parallel.
+
+---
+
+### 🛠️ Option B: Manual Virtualenv & Script Setup
+
+If you prefer manual configuration or are running on macOS/Linux:
+
+#### 1. Backend Virtual Environment & Dependencies
 ```bash
 # Clone the repository
 cd CN_CCR_2
 
-# Install Python requirements
-pip install -r backend/requirements.txt
+# Create virtual environment
+python -m venv .venv
 
-# Start FastAPI backend server with reload enabled
+# Activate virtual environment
+# On Windows (PowerShell):
+.\.venv\Scripts\Activate.ps1
+# On Windows (cmd):
+.\.venv\Scripts\activate.bat
+# On Linux/macOS:
+source .venv/bin/activate
+
+# Upgrade pip and install all backend requirements
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+
+# Start FastAPI backend server with hot-reload enabled
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload --app-dir backend
 ```
 * **API Documentation**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
