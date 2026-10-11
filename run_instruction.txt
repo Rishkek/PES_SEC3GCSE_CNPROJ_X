@@ -1,0 +1,5 @@
+# 1. Backend (in .venv)
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload --app-dir backend
+# 2. Frontend (in another terminal)
+cd frontend
+npm run dev
