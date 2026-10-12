@@ -346,23 +346,31 @@ pytest -o pythonpath=backend backend/tests
 
 ---
 
-### ⚡ Option A: 1-Click Automated Setup (`setup.exe`)
+### ⚡ Option A: Windows 1-Click Executables (`setup.exe` & `run.exe`)
 
-For Windows systems, a native standalone installer `setup.exe` is included in the project root:
+For Windows systems, two native standalone executables are provided in the project root:
 
-1. **Double-click `setup.exe`** (or execute `.\setup.exe` in PowerShell / Command Prompt).
-2. The installer automatically:
-   - ✅ Detects valid Python 3.10+ installation (bypassing Microsoft Store stubs).
-   - ✅ Detects Node.js and `npm`.
-   - ✅ Creates and configures the Python virtual environment (`.venv`).
-   - ✅ Upgrades `pip` and installs all dependencies from `requirements.txt`.
-   - ✅ Installs frontend packages with `npm install` inside `frontend/`.
-   - ✅ Runs the complete test suite (`pytest`) to verify engine integrity.
-   - 🚀 Offers a 1-key prompt to launch both FastAPI and Vite servers immediately in parallel.
+#### 1. First-Time Setup (`setup.exe`)
+* **Double-click `setup.exe`** (or execute `.\setup.exe`).
+* The installer automatically:
+  - ✅ Detects Python 3.10+ (bypassing Microsoft Store dummy shims).
+  - ✅ Detects Node.js and `npm`.
+  - ✅ Provisions the Python virtual environment (`.venv`).
+  - ✅ Upgrades `pip` and installs all dependencies from `requirements.txt`.
+  - ✅ Installs frontend packages (`npm install` inside `frontend/`).
+  - ✅ Runs `pytest` to verify simulation engine integrity.
+
+#### 2. Launching NetLab (`run.exe`)
+* **Double-click `run.exe`** (or execute `.\run.exe`).
+* The runner automatically:
+  - 🚀 Starts the FastAPI backend server (`http://127.0.0.1:8000`).
+  - 🌐 Starts the Vite + React frontend (`http://localhost:5173`).
+  - 💻 Opens your default web browser to the interactive UI.
+  - 🛑 Monitors processes with interactive controls (`Q` to cleanly stop all servers, `O` to re-open browser, `B` to open Swagger docs).
 
 ---
 
-### 🛠️ Option B: Manual Virtualenv & Script Setup
+### 🛠️ Option B: Manual Terminal Setup
 
 If you prefer manual configuration or are running on macOS/Linux:
 
