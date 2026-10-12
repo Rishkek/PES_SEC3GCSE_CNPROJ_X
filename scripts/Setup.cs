@@ -150,35 +150,24 @@ namespace NetLabSetup
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine(@"
 ========================================================================
-  [SUCCESS] NetLab Environment & All Dependencies Are Installed!
+  [SUCCESS] NetLab Prerequisites & Dependencies Are Installed!
 ========================================================================");
             Console.ResetColor();
 
-            Console.WriteLine("\nHow to launch manually:");
+            Console.WriteLine("\nPrerequisite installation is complete!");
+            Console.WriteLine("\nTo run the application:");
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("  👉 Double-click 'run.exe' (or execute .\\run.exe in terminal)");
+            Console.ResetColor();
+            Console.WriteLine("\nOr start manually in two terminals:");
             Console.WriteLine("  1. Backend Server:");
             Console.WriteLine("     .\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload --app-dir backend");
-            Console.WriteLine("  2. Frontend UI (in another terminal):");
-            Console.WriteLine("     cd frontend");
-            Console.WriteLine("     npm run dev");
+            Console.WriteLine("  2. Frontend UI:");
+            Console.WriteLine("     cd frontend && npm run dev");
             Console.WriteLine("\n  Access Web App at: http://localhost:5173");
             Console.WriteLine("  API Documentation: http://localhost:8000/docs");
 
-            // Prompt to launch immediately
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.Write("\nWould you like to start NetLab (Backend & Frontend) right now? [Y/N]: ");
-            Console.ResetColor();
-
-            string response = "";
-            try { response = Console.ReadLine(); } catch { }
-
-            if (!string.IsNullOrEmpty(response) && (response.Trim().Equals("Y", StringComparison.OrdinalIgnoreCase) || response.Trim().Equals("YES", StringComparison.OrdinalIgnoreCase)))
-            {
-                LaunchServers(rootDir, venvPython);
-            }
-            else
-            {
-                ExitPrompt(0);
-            }
+            ExitPrompt(0);
         }
 
         static string LocateProjectRoot()
@@ -360,48 +349,6 @@ namespace NetLabSetup
                 PrintError("Failed to execute: " + command + " " + arguments + " (" + ex.Message + ")");
             }
             return -1;
-        }
-
-        static void LaunchServers(string rootDir, string venvPython)
-        {
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("\n[+] Launching NetLab Backend and Frontend in separate windows...");
-            Console.ResetColor();
-
-            try
-            {
-                // Launch Backend in new window
-                string backendCmd = string.Format("cmd /k \"\"{0}\" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload --app-dir backend\"", venvPython);
-                ProcessStartInfo psiBackend = new ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    Arguments = "/c start \"NetLab Backend (FastAPI)\" " + backendCmd,
-                    WorkingDirectory = rootDir,
-                    UseShellExecute = true
-                };
-                Process.Start(psiBackend);
-
-                // Launch Frontend in new window
-                string frontendDir = Path.Combine(rootDir, "frontend");
-                string frontendCmd = "cmd /k \"npm run dev\"";
-                ProcessStartInfo psiFrontend = new ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    Arguments = "/c start \"NetLab Frontend (Vite)\" /d \"" + frontendDir + "\" " + frontendCmd,
-                    WorkingDirectory = frontendDir,
-                    UseShellExecute = true
-                };
-                Process.Start(psiFrontend);
-
-                System.Threading.Thread.Sleep(2000);
-                Process.Start("http://localhost:5173");
-            }
-            catch (Exception ex)
-            {
-                PrintError("Could not automatically launch windows: " + ex.Message);
-            }
-
-            ExitPrompt(0);
         }
 
         static void PrintSuccess(string message)
