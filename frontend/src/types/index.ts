@@ -1,6 +1,7 @@
 export type NodeType = 'sender' | 'receiver' | 'router' | 'switch';
 export type DropPolicy = 'tail_drop' | 'ecn' | 'red';
-export type TCPProtocol = 'tahoe' | 'reno' | 'cubic';
+export type TransportProtocol = 'udp' | 'reno' | 'tahoe' | 'cubic';
+export type TCPProtocol = TransportProtocol;
 
 export interface NodeConfig {
   id: string;
@@ -11,8 +12,13 @@ export interface NodeConfig {
   buffer_capacity: number; // -1 for infinite
   drop_policy: DropPolicy;
   ecn_threshold: number;
-  protocol: TCPProtocol;
+  protocol: TransportProtocol;
   mss: number;
+  udp_rate_mbps?: number;
+  udp_burst_enabled?: boolean;
+  udp_burst_rate_mbps?: number;
+  udp_burst_start_s?: number;
+  udp_burst_duration_s?: number;
   initial_cwnd: number;
   initial_ssthresh: number;
   max_cwnd: number;
@@ -80,11 +86,65 @@ export interface LinkSnapshot {
   is_active: boolean;
 }
 
+export interface SDNFlowRule {
+  flow_id: string;
+  src: string;
+  dst: string;
+  protocol: string;
+  path: string[];
+  rate_mbps: number;
+  tx_packets: number;
+  rx_packets: number;
+  dropped_packets: number;
+  tx_bytes: number;
+  rx_bytes: number;
+  goodput_mbps: number;
+  loss_rate_pct: number;
+  avg_delay_ms: number;
+  health_status: 'OPTIMAL' | 'CONGESTED' | 'REROUTED';
+  last_updated: number;
+}
+
+export interface SDNRecoveryRecord {
+  flow_id: string;
+  t_congestion: number;
+  t_reroute: number;
+  t_recovered: number;
+  recovery_time_ms: number;
+  pre_throughput_mbps: number;
+  post_throughput_mbps: number;
+  throughput_recovery_pct: number;
+  old_path: string[];
+  new_path: string[];
+  routing_mode: string;
+}
+
+export interface SDNControllerState {
+  routing_mode: 'adaptive' | 'static';
+  thresholds: {
+    queue_threshold: number;
+    utilization_threshold: number;
+    drop_rate_threshold: number;
+    latency_inflation_threshold?: number;
+  };
+  flow_table: Record<string, SDNFlowRule>;
+  overloaded_flows: Array<{
+    flow_id: string;
+    detected_time: number;
+    path: string[];
+    reasons: string[];
+  }>;
+  recovery_records: SDNRecoveryRecord[];
+  total_reroutes: number;
+  reroute_history?: RerouteRecord[];
+}
+
 export interface SimulationSnapshot {
   time: number;
   flows: Record<string, FlowSnapshot>;
   routers: Record<string, RouterSnapshot>;
   links: Record<string, LinkSnapshot>;
+  sdn?: SDNControllerState;
 }
 
 export interface ProtocolState {

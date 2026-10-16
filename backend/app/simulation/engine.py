@@ -6,7 +6,7 @@ from collections import deque
 
 from ..network.model import NodeConfig, LinkConfig, Packet, NodeType, DropPolicy, TopologyData
 from ..protocols import create_protocol, TCPBaseProtocol
-from ..routing.router import RoutingEngine, CongestionPolicy
+from ..routing.router import RoutingEngine, CongestionPolicy, SDNController
 from .events import SimulationEvent, EventType
 
 
@@ -17,6 +17,7 @@ class NetworkSimulation:
         seed: int = 42,
         auto_reroute: bool = False,
         congestion_policy: Optional[CongestionPolicy] = None,
+        routing_mode: Optional[str] = None,
     ):
         self.random = random.Random(seed)
         self.nodes: Dict[str, NodeConfig] = {n.id: n for n in topology.nodes}
@@ -26,6 +27,17 @@ class NetworkSimulation:
 
         # Routing engine
         self.router = RoutingEngine(self.nodes, self.links)
+
+        # Centralized SDN Controller
+        mode = routing_mode if routing_mode else ("adaptive" if auto_reroute else "static")
+        self.sdn_controller = SDNController(
+            routing_engine=self.router,
+            queue_threshold=self.congestion_policy.queue_ratio_threshold,
+            utilization_threshold=self.congestion_policy.utilization_threshold,
+            drop_rate_threshold=self.congestion_policy.drop_rate_threshold,
+            latency_inflation_threshold=self.congestion_policy.rtt_inflation_factor,
+            routing_mode=mode,
+        )
 
         # Simulation clock and state
         self.sim_time: float = 0.0
@@ -104,13 +116,15 @@ class NetworkSimulation:
             if not dst_id:
                 continue
 
-            # Create protocol
+            # Create protocol (supports UDP, Tahoe, Reno, CUBIC)
+            rate_mbps = getattr(sender, "udp_rate_mbps", 10.0)
             self.protocols[flow_id] = create_protocol(
                 name=sender.protocol,
                 mss=sender.mss,
                 initial_cwnd=sender.initial_cwnd,
                 initial_ssthresh=sender.initial_ssthresh,
                 max_cwnd=sender.max_cwnd,
+                rate_mbps=rate_mbps,
             )
 
             # Discover path
@@ -119,6 +133,17 @@ class NetworkSimulation:
                 # Disconnected topology
                 continue
             self.flow_paths[flow_id] = path
+
+            # Register flow in centralized SDN Controller OpenFlow flow table
+            eff_rate = rate_mbps if "udp" in sender.protocol.lower() else (sender.app_rate_bps / 1_000_000.0 if sender.app_rate_bps > 0 else 10.0)
+            self.sdn_controller.install_flow_rule(
+                flow_id=flow_id,
+                src=sender.id,
+                dst=dst_id,
+                protocol=sender.protocol,
+                path=path,
+                rate_mbps=eff_rate,
+            )
 
             # Initialize tracking
             self.next_seq_num[flow_id] = 1
@@ -283,7 +308,56 @@ class NetworkSimulation:
         if sender_node.app_stop_time > 0 and self.sim_time >= sender_node.app_stop_time:
             return
 
-        # Effective window = min(cwnd, rwnd)
+        # Handle UDP Traffic Generation (CBR / Burst / Multi-Path)
+        if "udp" in sender_node.protocol.lower():
+            path = list(self.flow_paths.get(flow_id, []))
+            if len(path) < 2:
+                return
+
+            active_rate = getattr(sender_node, "udp_rate_mbps", 10.0)
+            if getattr(sender_node, "udp_burst_enabled", False):
+                burst_start = getattr(sender_node, "udp_burst_start_s", 2.0)
+                burst_dur = getattr(sender_node, "udp_burst_duration_s", 1.0)
+                if burst_start <= self.sim_time <= burst_start + burst_dur:
+                    active_rate = getattr(sender_node, "udp_burst_rate_mbps", 25.0)
+
+            inter_pkt_time = max(0.0001, (proto.mss * 8.0) / max(100_000.0, active_rate * 1_000_000.0))
+
+            seq = self.next_seq_num[flow_id]
+            self.next_seq_num[flow_id] += 1
+            self.packet_counter += 1
+
+            packet = Packet(
+                packet_id=self.packet_counter,
+                flow_id=flow_id,
+                source_id=sender_id,
+                dest_id=path[-1],
+                seq_num=seq,
+                size_bytes=proto.mss,
+                created_time=self.sim_time,
+                protocol="udp",
+                is_ack=False,
+                path=path,
+                current_hop=0,
+            )
+
+            self.total_app_bytes_offered[flow_id] += proto.mss
+            self.total_bytes_transmitted[flow_id] += proto.mss
+            self.window_transmitted_bytes[flow_id] += proto.mss
+            self.total_app_packets_generated[flow_id] = self.total_app_packets_generated.get(flow_id, 0) + 1
+            if hasattr(proto, "packets_sent"):
+                proto.packets_sent += 1
+                proto.bytes_sent += proto.mss
+
+            self._send_packet_on_path(packet, self.sim_time)
+
+            next_gen_time = self.sim_time + inter_pkt_time
+            if self.sim_time < self.max_time:
+                if sender_node.app_stop_time == 0 or next_gen_time < sender_node.app_stop_time:
+                    self._schedule_event(next_gen_time, EventType.PACKET_GENERATE, flow_id)
+            return
+
+        # Effective window = min(cwnd, rwnd) (TCP)
         rwnd = getattr(sender_node, "rwnd", 64.0)
         effective_window = max(1.0, min(proto.cwnd, rwnd))
         in_flight = len(self.unacked_packets[flow_id])
@@ -414,6 +488,9 @@ class NetworkSimulation:
                 self.total_packets_dropped_overflow[packet.flow_id] = (
                     self.total_packets_dropped_overflow.get(packet.flow_id, 0) + 1
                 )
+                proto = self.protocols.get(packet.flow_id)
+                if proto and hasattr(proto, "packets_dropped"):
+                    proto.packets_dropped += 1
                 self._log_event(
                     event,
                     f"Buffer overflow at router {router_id} [{out_link.id}] ({len(queue)}/{buf_cap} pkts). Packet seq {packet.seq_num} DROPPED!",
@@ -504,6 +581,23 @@ class NetworkSimulation:
             return
 
         flow_id = packet.flow_id
+
+        # UDP Reception: record delivery and latency, no return ACK
+        if getattr(packet, "protocol", "tcp") == "udp":
+            self.total_bytes_delivered[flow_id] = self.total_bytes_delivered.get(flow_id, 0) + packet.size_bytes
+            self.window_delivered_bytes[flow_id] = self.window_delivered_bytes.get(flow_id, 0) + packet.size_bytes
+            proto = self.protocols.get(flow_id)
+            if proto and hasattr(proto, "packets_delivered"):
+                proto.packets_delivered += 1
+                proto.bytes_delivered += packet.size_bytes
+                proto.current_rtt_ms = round((self.sim_time - packet.created_time) * 1000.0, 2)
+            self._log_event(
+                event,
+                f"UDP Datagram #{packet.seq_num} received at {packet.dest_id}. One-way delay: {round((self.sim_time - packet.created_time)*1000.0, 2)} ms",
+                category="PACKET_DELIVERED",
+            )
+            return
+
         expected = self.expected_seq.get(flow_id, 1)
         reorder_buf = self.receiver_buffers[flow_id]
 
@@ -674,21 +768,83 @@ class NetworkSimulation:
         self._send_packet_on_path(rexmit_pkt, self.sim_time)
 
     def _handle_congestion_check(self, event: SimulationEvent) -> None:
-        """Periodic congestion check and dynamic traffic rerouting."""
+        """Periodic congestion check, flow stats polling, and dynamic SDN rerouting."""
+        link_stats: Dict[str, Dict[str, float]] = {}
+        for link in self.links.values():
+            q_ratio = 0.0
+            if link.source in self.nodes and self.nodes[link.source].type == NodeType.ROUTER:
+                router = self.nodes[link.source]
+                if router.buffer_capacity > 0:
+                    q_len = len(self.router_egress_queues.get((link.source, link.id), deque()))
+                    q_ratio = q_len / float(router.buffer_capacity)
+
+            is_busy = 1.0 if self.link_busy_until[link.id] > self.sim_time else 0.0
+            link_stats[link.id] = {
+                "queue_ratio": q_ratio,
+                "utilization": is_busy,
+                "drop_rate": 0.0,
+            }
+
         scores = self.get_congestion_scores()
 
-        if self.auto_reroute:
-            for flow_id, current_path in list(self.flow_paths.items()):
-                # Check if current path has high congestion score
-                current_cost = self.router.calculate_path_cost(current_path, congestion_scores=scores)
-                if current_cost["total_congestion_score"] > 0.5:
-                    src, dst = current_path[0], current_path[-1]
-                    alt_path = self.router.find_shortest_path(src, dst, congestion_scores=scores, congestion_aware=True)
-                    if alt_path and alt_path != current_path:
-                        alt_cost = self.router.calculate_path_cost(alt_path, congestion_scores=scores)
-                        if alt_cost["total_congestion_score"] < current_cost["total_congestion_score"]:
-                            # Perform traffic rerouting!
-                            self.reroute_flow(flow_id, alt_path, reason="Automated Congestion-Aware Rerouting")
+        # Update flow stats in SDN Controller
+        for flow_id, path in self.flow_paths.items():
+            tx = self.total_app_packets_generated.get(flow_id, 0)
+            rx = self.total_bytes_delivered.get(flow_id, 0) // max(1, getattr(self.protocols.get(flow_id), "mss", 1000))
+            drops = self.total_packets_dropped_overflow.get(flow_id, 0)
+            tx_b = self.total_bytes_transmitted.get(flow_id, 0)
+            rx_b = self.total_bytes_delivered.get(flow_id, 0)
+            goodput = (rx_b * 8.0) / (max(0.001, self.sim_time) * 1_000_000.0)
+            loss_pct = (drops / max(1, tx)) * 100.0
+            avg_delay = getattr(self.protocols.get(flow_id), "current_rtt_ms", 20.0)
+
+            self.sdn_controller.update_flow_stats(
+                flow_id=flow_id,
+                tx_packets=tx,
+                rx_packets=rx,
+                dropped_packets=drops,
+                tx_bytes=tx_b,
+                rx_bytes=rx_b,
+                goodput_mbps=goodput,
+                avg_delay_ms=avg_delay,
+                sim_time=self.sim_time,
+            )
+
+            # Check if any flow has finished recovery
+            rec = self.sdn_controller.check_recovery_status(
+                flow_id=flow_id,
+                sim_time=self.sim_time,
+                current_goodput=goodput,
+                current_loss_rate=loss_pct,
+            )
+            if rec:
+                self._log_event(
+                    SimulationEvent(self.sim_time, EventType.REROUTE_EVENT, flow_id),
+                    f"SDN Controller: Performance RECOVERED for {flow_id}! Recovery Time: {rec['recovery_time_ms']} ms, Throughput: {rec['post_throughput_mbps']} Mbps ({rec['throughput_recovery_pct']}%)",
+                    category="RECOVERY_COMPLETED",
+                    data=rec,
+                )
+
+        # Detect overloaded paths via SDN Controller thresholds
+        newly_congested = self.sdn_controller.detect_overloaded_paths(link_stats, self.sim_time)
+        for item in newly_congested:
+            f_id = item["flow_id"]
+            self._log_event(
+                SimulationEvent(self.sim_time, EventType.CONGESTION_CHECK, f_id),
+                f"SDN Controller: OVERLOADED PATH detected on {f_id}! {'; '.join(item['reasons'])}",
+                category="CONGESTION_DETECTED",
+                data=item,
+            )
+
+        # Dynamic SDN Rerouting (Active when adaptive mode or auto_reroute is set)
+        if self.auto_reroute or self.sdn_controller.routing_mode == "adaptive":
+            for flow_id in list(self.flow_paths.keys()):
+                if flow_id in self.sdn_controller.overloaded_flows:
+                    alt_path = self.sdn_controller.compute_dynamic_reroute(flow_id, scores)
+                    if alt_path and alt_path != self.flow_paths[flow_id]:
+                        reason = f"SDN Controller Dynamic Reroute: Shift from congested path {' -> '.join(self.flow_paths[flow_id])} to less-loaded path {' -> '.join(alt_path)}"
+                        self.reroute_flow(flow_id, alt_path, reason=reason)
+                        self.sdn_controller.notify_reroute_executed(flow_id, alt_path, self.sim_time, reason)
 
         # Reschedule check in 0.1s
         if self.sim_time < self.max_time:
@@ -796,6 +952,22 @@ class NetworkSimulation:
                 "is_active": link.is_active,
             }
 
+        # Centralized SDN Controller Snapshot
+        snapshot["sdn"] = {
+            "routing_mode": self.sdn_controller.routing_mode,
+            "thresholds": {
+                "queue_threshold": round(self.sdn_controller.queue_threshold * 100.0, 1),
+                "utilization_threshold": round(self.sdn_controller.utilization_threshold * 100.0, 1),
+                "drop_rate_threshold": round(self.sdn_controller.drop_rate_threshold * 100.0, 1),
+            },
+            "overloaded_count": len(self.sdn_controller.overloaded_flows),
+            "overloaded_flows": list(self.sdn_controller.overloaded_flows.values()),
+            "total_reroutes": len(self.reroute_history),
+            "flow_table": self.sdn_controller.flow_table,
+            "recovery_records": self.sdn_controller.recovery_records,
+            "latest_recovery": self.sdn_controller.recovery_records[-1] if self.sdn_controller.recovery_records else None,
+        }
+
         self.snapshots.append(snapshot)
         if len(self.snapshots) > 1000:
             self.snapshots.pop(0)
@@ -808,6 +980,18 @@ class NetworkSimulation:
             "flows": {},
             "jains_fairness_index": 1.0,
             "total_reroutes": len(self.reroute_history),
+            "sdn_telemetry": {
+                "routing_mode": self.sdn_controller.routing_mode,
+                "thresholds": {
+                    "queue_threshold": self.sdn_controller.queue_threshold,
+                    "utilization_threshold": self.sdn_controller.utilization_threshold,
+                    "drop_rate_threshold": self.sdn_controller.drop_rate_threshold,
+                },
+                "flow_table": self.sdn_controller.flow_table,
+                "overloaded_flows": list(self.sdn_controller.overloaded_flows.values()),
+                "recovery_records": self.sdn_controller.recovery_records,
+                "total_reroutes": len(self.reroute_history),
+            },
         }
 
         goodputs = []

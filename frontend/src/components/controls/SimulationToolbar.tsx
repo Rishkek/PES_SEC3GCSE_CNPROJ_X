@@ -123,10 +123,10 @@ export const SimulationToolbar: React.FC<SimulationToolbarProps> = ({
               ? 'bg-purple-900/30 border-purple-500 text-purple-300'
               : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200'
           }`}
-          title="Automatic Congestion-Aware Traffic Rerouting"
+          title="Switch SDN Controller between Adaptive Dynamic Rerouting and Static Routing"
         >
           <Shuffle className="w-3.5 h-3.5" />
-          <span>Auto-Reroute: {autoReroute ? 'ON' : 'OFF'}</span>
+          <span>SDN Reroute: {autoReroute ? 'Adaptive' : 'Static'}</span>
         </button>
 
         <button

@@ -182,3 +182,66 @@ export async function updateTopology(simId: string, topology: TopologyData) {
   if (!res.ok) throw new Error(`Failed to update topology: ${res.statusText}`);
   return res.json();
 }
+
+// ============================================================================
+// Project 27: SDN Controller, UDP Traffic & Dynamic Rerouting API Client
+// ============================================================================
+
+export async function getSDNStatus(simId: string) {
+  const res = await fetch(`${API_BASE}/simulations/${simId}/sdn`);
+  if (!res.ok) throw new Error(`Failed to get SDN status: ${res.statusText}`);
+  return res.json();
+}
+
+export async function setSDNMode(simId: string, mode: 'adaptive' | 'static') {
+  const res = await fetch(`${API_BASE}/simulations/${simId}/sdn/mode`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
+  if (!res.ok) throw new Error(`Failed to set SDN mode: ${res.statusText}`);
+  return res.json();
+}
+
+export async function setSDNThresholds(
+  simId: string,
+  thresholds: {
+    queue_threshold?: number;
+    utilization_threshold?: number;
+    drop_rate_threshold?: number;
+  }
+) {
+  const res = await fetch(`${API_BASE}/simulations/${simId}/sdn/thresholds`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(thresholds),
+  });
+  if (!res.ok) throw new Error(`Failed to set SDN thresholds: ${res.statusText}`);
+  return res.json();
+}
+
+export async function injectControlledCongestion(
+  simId: string,
+  burstRateMbps = 25.0,
+  durationS = 1.5,
+  flowId?: string
+) {
+  const res = await fetch(`${API_BASE}/simulations/${simId}/sdn/inject_congestion`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ burst_rate_mbps: burstRateMbps, duration_s: durationS, flow_id: flowId }),
+  });
+  if (!res.ok) throw new Error(`Failed to inject congestion: ${res.statusText}`);
+  return res.json();
+}
+
+export async function compareSDNRouting(durationS = 4.0, seed = 42) {
+  const res = await fetch(`${API_BASE}/sdn/compare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ duration_s: durationS, seed }),
+  });
+  if (!res.ok) throw new Error(`Failed to compare SDN routing: ${res.statusText}`);
+  return res.json();
+}
+

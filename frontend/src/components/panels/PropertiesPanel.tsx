@@ -310,56 +310,124 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             </div>
             <select
               value={node.protocol}
-              onChange={(e) => onUpdateNode({ ...node, protocol: e.target.value as TCPProtocol })}
+              onChange={(e) => onUpdateNode({ ...node, protocol: e.target.value as any })}
               className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-blue-500"
             >
-              <option value="tahoe">TCP Tahoe (1988) — Drops to 1 on loss</option>
+              <option value="udp">UDP (Topic 27) — Connectionless Datagram Generator</option>
               <option value="reno">TCP Reno (1990) — Fast Recovery to ssthresh</option>
+              <option value="tahoe">TCP Tahoe (1988) — Drops to 1 on loss</option>
               <option value="cubic">TCP CUBIC (RFC 9438) — Cubic polynomial</option>
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <div className="flex items-center justify-between text-slate-400 mb-1">
-                <span>Initial cwnd:</span>
-                <button onClick={() => onExplain('cwnd')} className="text-blue-400">
-                  <HelpCircle className="w-3 h-3" />
-                </button>
+          {node.protocol === 'udp' ? (
+            <div className="space-y-3 p-3 bg-purple-950/20 border border-purple-800/40 rounded-lg">
+              <div className="flex items-center justify-between text-xs text-purple-300 font-semibold">
+                <span>UDP Rate Configuration (Topic 27)</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-900/60 font-mono">
+                  {(node.udp_rate_mbps ?? 10.0).toFixed(1)} Mbps
+                </span>
               </div>
-              <input
-                type="number"
-                min="1"
-                max="64"
-                value={node.initial_cwnd}
-                onChange={(e) =>
-                  onUpdateNode({ ...node, initial_cwnd: Math.max(1, parseFloat(e.target.value) || 1) })
-                }
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono text-xs focus:border-blue-500"
-              />
-              <span className="text-[10px] text-slate-500">packets</span>
-            </div>
+              <div>
+                <div className="text-[11px] text-slate-400 mb-1">Transmission Bit Rate:</div>
+                <input
+                  type="range"
+                  min="1"
+                  max="40"
+                  step="0.5"
+                  value={node.udp_rate_mbps ?? 10.0}
+                  onChange={(e) => onUpdateNode({ ...node, udp_rate_mbps: parseFloat(e.target.value) })}
+                  className="w-full accent-purple-500"
+                />
+              </div>
 
-            <div>
-              <div className="flex items-center justify-between text-slate-400 mb-1">
-                <span>Initial ssthresh:</span>
-                <button onClick={() => onExplain('ssthresh')} className="text-blue-400">
-                  <HelpCircle className="w-3 h-3" />
-                </button>
+              {/* Controlled Congestion Spike */}
+              <div className="pt-2 border-t border-purple-900/40 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-300 font-medium">Controlled Congestion Burst:</span>
+                  <input
+                    type="checkbox"
+                    checked={!!node.udp_burst_enabled}
+                    onChange={(e) => onUpdateNode({ ...node, udp_burst_enabled: e.target.checked })}
+                    className="accent-purple-500"
+                  />
+                </div>
+                {node.udp_burst_enabled && (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <div className="text-[10px] text-slate-400">Burst Rate (Mbps):</div>
+                      <input
+                        type="number"
+                        min="5"
+                        max="60"
+                        value={node.udp_burst_rate_mbps ?? 25.0}
+                        onChange={(e) =>
+                          onUpdateNode({ ...node, udp_burst_rate_mbps: parseFloat(e.target.value) || 25.0 })
+                        }
+                        className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-400">Burst Start (s):</div>
+                      <input
+                        type="number"
+                        min="0"
+                        max="20"
+                        step="0.5"
+                        value={node.udp_burst_start_s ?? 2.0}
+                        onChange={(e) =>
+                          onUpdateNode({ ...node, udp_burst_start_s: parseFloat(e.target.value) || 2.0 })
+                        }
+                        className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
-              <input
-                type="number"
-                min="2"
-                max="128"
-                value={node.initial_ssthresh}
-                onChange={(e) =>
-                  onUpdateNode({ ...node, initial_ssthresh: Math.max(2, parseFloat(e.target.value) || 16) })
-                }
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono text-xs focus:border-blue-500"
-              />
-              <span className="text-[10px] text-slate-500">packets</span>
             </div>
-          </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div className="flex items-center justify-between text-slate-400 mb-1">
+                  <span>Initial cwnd:</span>
+                  <button onClick={() => onExplain('cwnd')} className="text-blue-400">
+                    <HelpCircle className="w-3 h-3" />
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  max="64"
+                  value={node.initial_cwnd}
+                  onChange={(e) =>
+                    onUpdateNode({ ...node, initial_cwnd: Math.max(1, parseFloat(e.target.value) || 1) })
+                  }
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono text-xs focus:border-blue-500"
+                />
+                <span className="text-[10px] text-slate-500">packets</span>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between text-slate-400 mb-1">
+                  <span>Initial ssthresh:</span>
+                  <button onClick={() => onExplain('ssthresh')} className="text-blue-400">
+                    <HelpCircle className="w-3 h-3" />
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  min="2"
+                  max="128"
+                  value={node.initial_ssthresh}
+                  onChange={(e) =>
+                    onUpdateNode({ ...node, initial_ssthresh: Math.max(2, parseFloat(e.target.value) || 16) })
+                  }
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono text-xs focus:border-blue-500"
+                />
+                <span className="text-[10px] text-slate-500">packets</span>
+              </div>
+            </div>
+          )}
 
           <div>
             <div className="flex items-center justify-between text-slate-400 mb-1">

@@ -97,6 +97,34 @@ def get_scenario_catalog() -> List[Dict[str, Any]]:
                 "4. Compare before-and-after throughput and packet drops.",
             ],
         },
+        {
+            "id": "scenario_27_sdn_udp_reroute",
+            "title": "Topic 27: SDN UDP Congestion Detection & Dynamic Rerouting",
+            "subtitle": "Multi-Path UDP Traffic, Controlled Congestion & SDN Dynamic Bypass",
+            "category": "SDN Traffic Engineering (Topic 27)",
+            "description": "Complies strictly with Project 27 guidelines: Generates high-rate UDP traffic across a multi-path OpenFlow SDN topology. Injects controlled congestion, detects overloaded paths via programmable thresholds, dynamically reroutes UDP datagrams to a less-loaded path, and measures recovery time and throughput restoration.",
+            "slides_reference": "Topic 27: Congestion Detection & Traffic Rerouting (UDP / SDN)",
+            "guided_steps": [
+                "1. UDP Source transmits at 12 Mbps over Primary Path 1 (S1 -> R_Primary -> S2).",
+                "2. Controlled congestion generator injects 6 Mbps cross-traffic into R_Primary at t=1.5s.",
+                "3. Total load (18 Mbps) saturates 10 Mbps bottleneck; buffer exceeds 70% threshold and begins dropping packets.",
+                "4. Centralized SDN Controller detects the overloaded path and issues FLOW_MOD to steer UDP traffic onto Less-Loaded Path 2 (S1 -> R_Alternate -> S2).",
+                "5. Observe packet loss drop to 0, throughput recover to 12+ Mbps, and inspect the Recovery Time (ms) metric.",
+            ],
+        },
+        {
+            "id": "scenario_28_static_vs_adaptive",
+            "title": "Topic 27: Static Routing vs Adaptive SDN Routing Head-to-Head",
+            "subtitle": "Persistent Packet Loss vs Autonomous SDN Traffic Restoration",
+            "category": "SDN Traffic Engineering (Topic 27)",
+            "description": "Compares static shortest-path routing against adaptive SDN congestion-aware routing under identical high-rate UDP traffic. Demonstrates how static routing leads to sustained queue saturation and catastrophic drop rates, whereas adaptive routing recovers line-rate throughput.",
+            "slides_reference": "Topic 27: Compare Static and Adaptive Routing",
+            "guided_steps": [
+                "1. Run simulation with SDN Controller set to Static Mode: traffic remains locked to Path 1, dropping packets continuously.",
+                "2. Switch SDN Controller to Adaptive Mode: traffic dynamically shifts to Path 2 when threshold is breached.",
+                "3. Compare final delivery ratios, total dropped packets, and recovery latency in the Comparison Dashboard.",
+            ],
+        },
     ]
 
 
@@ -201,6 +229,86 @@ def build_scenario_topology(scenario_id: str) -> TopologyData:
             # Backup path: 20 Mbps, 30 ms delay, higher capacity
             LinkConfig(id="L_Src_Back", source="Source", target="R_Backup", bandwidth_bps=20_000_000.0, propagation_delay_s=0.03, cost=5.0),
             LinkConfig(id="L_Back_Dst", source="R_Backup", target="Dest", bandwidth_bps=20_000_000.0, propagation_delay_s=0.03, cost=5.0),
+        ]
+        return TopologyData(nodes=nodes, links=links)
+
+    elif scenario_id in ("scenario_27_sdn_udp_reroute", "scenario_28_static_vs_adaptive"):
+        nodes = [
+            NodeConfig(
+                id="UDP_Source",
+                label="UDP Traffic Source",
+                type=NodeType.SENDER,
+                x=80,
+                y=220,
+                protocol="udp",
+                udp_rate_mbps=12.0,
+                mss=1000,
+                dest_id="UDP_Dest",
+            ),
+            NodeConfig(
+                id="Switch_Ingress",
+                label="SDN Ingress Switch (S1)",
+                type=NodeType.ROUTER,
+                x=260,
+                y=220,
+                buffer_capacity=40,
+            ),
+            NodeConfig(
+                id="R_Primary",
+                label="Path 1: Primary Core (10 Mbps, Buf 15)",
+                type=NodeType.ROUTER,
+                x=480,
+                y=120,
+                buffer_capacity=15,
+            ),
+            NodeConfig(
+                id="R_Alternate",
+                label="Path 2: Less-Loaded Bypass (25 Mbps, Buf 50)",
+                type=NodeType.ROUTER,
+                x=480,
+                y=320,
+                buffer_capacity=50,
+            ),
+            NodeConfig(
+                id="Switch_Egress",
+                label="SDN Egress Switch (S2)",
+                type=NodeType.ROUTER,
+                x=700,
+                y=220,
+                buffer_capacity=40,
+            ),
+            NodeConfig(
+                id="UDP_Dest",
+                label="UDP Receiver / Sink",
+                type=NodeType.RECEIVER,
+                x=880,
+                y=220,
+            ),
+            NodeConfig(
+                id="Interferer",
+                label="Controlled Congestion Generator",
+                type=NodeType.SENDER,
+                x=320,
+                y=40,
+                protocol="udp",
+                udp_rate_mbps=6.0,
+                start_time=1.5,
+                dest_id="UDP_Dest",
+            ),
+        ]
+        links = [
+            # Ingress link from UDP Source to Switch 1
+            LinkConfig(id="L_Src_S1", source="UDP_Source", target="Switch_Ingress", bandwidth_bps=50_000_000.0, propagation_delay_s=0.002, cost=1.0),
+            # Path 1 (Primary Bottleneck Path: 10 Mbps, 5 ms)
+            LinkConfig(id="L_S1_Prim", source="Switch_Ingress", target="R_Primary", bandwidth_bps=10_000_000.0, propagation_delay_s=0.005, cost=1.0, is_bottleneck=True),
+            LinkConfig(id="L_Prim_S2", source="R_Primary", target="Switch_Egress", bandwidth_bps=10_000_000.0, propagation_delay_s=0.005, cost=1.0),
+            # Path 2 (Alternative Less-Loaded Path: 25 Mbps, 15 ms)
+            LinkConfig(id="L_S1_Alt", source="Switch_Ingress", target="R_Alternate", bandwidth_bps=25_000_000.0, propagation_delay_s=0.015, cost=3.0),
+            LinkConfig(id="L_Alt_S2", source="R_Alternate", target="Switch_Egress", bandwidth_bps=25_000_000.0, propagation_delay_s=0.015, cost=3.0),
+            # Egress link from Switch 2 to Destination
+            LinkConfig(id="L_S2_Dst", source="Switch_Egress", target="UDP_Dest", bandwidth_bps=50_000_000.0, propagation_delay_s=0.002, cost=1.0),
+            # Cross-traffic link to induce controlled congestion on R_Primary
+            LinkConfig(id="L_Interf_Prim", source="Interferer", target="R_Primary", bandwidth_bps=20_000_000.0, propagation_delay_s=0.002, cost=1.0),
         ]
         return TopologyData(nodes=nodes, links=links)
 

@@ -138,7 +138,7 @@ export const CustomNode = memo(({ data, selected }: NodeProps<CustomNodeData>) =
         </div>
       )}
 
-      {/* Sender live cwnd status */}
+      {/* Sender live cwnd status or UDP goodput/drops */}
       {isSender && data.flowStats && (
         <div
           className="mt-2.5 pt-2 border-t border-slate-800 flex justify-between items-center text-[10px] font-mono hover:bg-slate-800/30 rounded p-1 -mx-1 transition-colors"
@@ -146,12 +146,25 @@ export const CustomNode = memo(({ data, selected }: NodeProps<CustomNodeData>) =
             e.stopPropagation();
             data.onOpenRateSettings?.(data.id);
           }}
-          title="Click to view rate and congestion window settings"
+          title="Click to view rate and congestion settings"
         >
-          <span className="text-slate-400">cwnd:</span>
-          <span className="text-blue-400 font-semibold">{data.flowStats.cwnd.toFixed(1)} MSS</span>
-          <span className="text-slate-500">ssth:</span>
-          <span className="text-amber-400">{data.flowStats.ssthresh.toFixed(0)}</span>
+          {data.protocol === 'udp' ? (
+            <div className="flex justify-between items-center w-full">
+              <span className="text-slate-400">Goodput:</span>
+              <span className="text-blue-400 font-semibold">{data.flowStats.goodput_mbps.toFixed(1)}M</span>
+              <span className="text-slate-500 ml-1">Drops:</span>
+              <span className={data.flowStats.total_drops_overflow > 0 ? "text-rose-400 font-bold" : "text-emerald-400"}>
+                {data.flowStats.total_drops_overflow}
+              </span>
+            </div>
+          ) : (
+            <>
+              <span className="text-slate-400">cwnd:</span>
+              <span className="text-blue-400 font-semibold">{data.flowStats.cwnd.toFixed(1)} MSS</span>
+              <span className="text-slate-500">ssth:</span>
+              <span className="text-amber-400">{data.flowStats.ssthresh.toFixed(0)}</span>
+            </>
+          )}
         </div>
       )}
 

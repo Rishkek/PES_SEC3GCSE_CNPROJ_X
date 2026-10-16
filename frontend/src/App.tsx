@@ -25,7 +25,7 @@ export const App: React.FC = () => {
     'lab' | 'overview' | 'compare' | 'scenarios' | 'experiments'
   >('lab');
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>(
-    'scenario_1_flow_vs_congestion'
+    'scenario_27_sdn_udp_reroute'
   );
 
   // Theme state
@@ -125,7 +125,7 @@ export const App: React.FC = () => {
               }`}
             >
               <GitCompare className="w-3.5 h-3.5 text-orange-400" />
-              <span>Protocol Comparison</span>
+              <span>Comparisons & SDN Benchmarks</span>
             </button>
 
             <button

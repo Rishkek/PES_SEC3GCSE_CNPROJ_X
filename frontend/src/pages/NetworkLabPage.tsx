@@ -33,6 +33,9 @@ import {
   cutLink,
   overrideCwnd,
   updateTopology,
+  injectControlledCongestion,
+  setSDNMode,
+  setSDNThresholds,
 } from '../services/api';
 import {
   ChevronLeft,
@@ -55,7 +58,7 @@ interface NetworkLabPageProps {
 }
 
 export const NetworkLabPage: React.FC<NetworkLabPageProps> = ({
-  initialScenarioId = 'scenario_1_flow_vs_congestion',
+  initialScenarioId = 'scenario_27_sdn_udp_reroute',
   onOpenHelpDesk,
 }) => {
   // Topology state
@@ -72,7 +75,7 @@ export const NetworkLabPage: React.FC<NetworkLabPageProps> = ({
   const [simTime, setSimTime] = useState<number>(0.0);
   const [eventsCount, setEventsCount] = useState<number>(0);
   const [speed, setSpeed] = useState<number>(1.0);
-  const [autoReroute, setAutoReroute] = useState<boolean>(false);
+  const [autoReroute, setAutoReroute] = useState<boolean>(true);
   const [guidedMode, setGuidedMode] = useState<boolean>(true);
 
   // Panels collapse & tab states
@@ -927,7 +930,18 @@ export const NetworkLabPage: React.FC<NetworkLabPageProps> = ({
                   congestionScores={congestionScores}
                   topology={topology}
                   autoReroute={autoReroute}
-                  onAutoRerouteToggle={() => setAutoReroute(!autoReroute)}
+                  onAutoRerouteToggle={async () => {
+                    const nextMode = !autoReroute;
+                    setAutoReroute(nextMode);
+                    if (simId) {
+                      try {
+                        await setSDNMode(simId, nextMode ? 'adaptive' : 'static');
+                        showToast(`SDN Controller mode: ${nextMode ? 'Adaptive (SDN)' : 'Static'}`, 'info');
+                      } catch (err) {
+                        console.error('Failed to set SDN mode:', err);
+                      }
+                    }
+                  }}
                   onManualReroute={async (flowId, newPath) => {
                     if (!simId) return;
                     try {
@@ -935,6 +949,27 @@ export const NetworkLabPage: React.FC<NetworkLabPageProps> = ({
                       showToast(`Rerouted ${flowId} path`, 'info');
                     } catch (err) {
                       console.error(err);
+                    }
+                  }}
+                  sdnState={latestSnapshot?.sdn}
+                  onInjectCongestion={async () => {
+                    if (!simId) return;
+                    try {
+                      const res = await injectControlledCongestion(simId, 25.0, 1.5);
+                      showToast(res.message || 'Controlled congestion burst injected!', 'warn');
+                    } catch (err) {
+                      console.error('Failed to inject congestion:', err);
+                      showToast('Failed to inject congestion burst', 'warn');
+                    }
+                  }}
+                  onUpdateThresholds={async (thresh) => {
+                    if (!simId) return;
+                    try {
+                      await setSDNThresholds(simId, thresh);
+                      showToast('Updated SDN congestion thresholds', 'success');
+                    } catch (err) {
+                      console.error('Failed to update thresholds:', err);
+                      showToast('Failed to update thresholds', 'warn');
                     }
                   }}
                 />

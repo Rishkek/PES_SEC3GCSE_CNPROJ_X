@@ -58,3 +58,26 @@ class AddLinkRequest(BaseModel):
 class UpdateTopologyRequest(BaseModel):
     topology: TopologyData
 
+
+class SDNModeRequest(BaseModel):
+    mode: str = "adaptive"  # "adaptive" or "static"
+
+
+class SDNThresholdsRequest(BaseModel):
+    queue_threshold: Optional[float] = None
+    utilization_threshold: Optional[float] = None
+    drop_rate_threshold: Optional[float] = None
+    latency_inflation_threshold: Optional[float] = None
+
+
+class InjectCongestionRequest(BaseModel):
+    flow_id: Optional[str] = None
+    burst_rate_mbps: float = 25.0
+    duration_s: float = 1.5
+
+
+class SDNCompareRequest(BaseModel):
+    duration_s: float = 4.0
+    seed: int = 42
+
+

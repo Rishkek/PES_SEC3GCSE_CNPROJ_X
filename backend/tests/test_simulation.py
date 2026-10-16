@@ -129,3 +129,77 @@ def test_router_queue_drains_dynamically():
     ]
     min_occupancy = min(queue_occupancies[20:])  # after initial fill
     assert min_occupancy < 5, f"Queue never drained: min occupancy was {min_occupancy}"
+
+
+def test_udp_traffic_generation():
+    """Verify UDP constant bit rate traffic generation without TCP window/ACK constraints."""
+    nodes = [
+        NodeConfig(id="UDP_Src", label="UDP Sender", type=NodeType.SENDER, protocol="udp", udp_rate_mbps=10.0, mss=1000, dest_id="UDP_Dst"),
+        NodeConfig(id="R1", label="Router", type=NodeType.ROUTER, buffer_capacity=50),
+        NodeConfig(id="UDP_Dst", label="UDP Receiver", type=NodeType.RECEIVER),
+    ]
+    links = [
+        LinkConfig(id="L1", source="UDP_Src", target="R1", bandwidth_bps=20_000_000.0, propagation_delay_s=0.005),
+        LinkConfig(id="L2", source="R1", target="UDP_Dst", bandwidth_bps=20_000_000.0, propagation_delay_s=0.005),
+    ]
+    topo = TopologyData(nodes=nodes, links=links)
+    sim = NetworkSimulation(topology=topo, seed=42)
+    sim.run_until(1.0)
+
+    summary = sim.get_summary_metrics()
+    flow = summary["flows"]["flow_UDP_Src"]
+    assert flow["useful_bytes_delivered"] > 500_000  # Delivered ~1MB in 1s at 10 Mbps
+    assert flow["total_retransmissions"] == 0         # Pure UDP: zero retransmission overhead
+    assert flow["unneeded_duplicates"] == 0          # No duplicate ACKs
+
+
+def test_sdn_controller_congestion_detection_and_reroute():
+    """Verify SDN controller detects overloaded path, triggers FLOW_MOD reroute, and measures recovery."""
+    topo = build_scenario_topology("scenario_27_sdn_udp_reroute")
+    sim = NetworkSimulation(topology=topo, seed=42, auto_reroute=True, routing_mode="adaptive")
+
+    # Initial flow path must use primary core router
+    assert sim.flow_paths["flow_UDP_Source"] == ["UDP_Source", "Switch_Ingress", "R_Primary", "Switch_Egress", "UDP_Dest"]
+
+    # Run simulation: controlled cross-traffic injects and saturates R_Primary
+    sim.run_until(3.0)
+
+    # SDN Controller must detect overload and reroute to R_Alternate
+    assert len(sim.reroute_history) > 0
+    assert sim.flow_paths["flow_UDP_Source"] == ["UDP_Source", "Switch_Ingress", "R_Alternate", "Switch_Egress", "UDP_Dest"]
+
+    # Verify SDN Controller flow table telemetry
+    flow_table = sim.sdn_controller.flow_table
+    assert "flow_UDP_Source" in flow_table
+    assert flow_table["flow_UDP_Source"]["protocol"] == "UDP"
+    assert flow_table["flow_UDP_Source"]["rx_bytes"] > 0
+
+    # Verify recovery measurement record
+    assert len(sim.sdn_controller.recovery_records) > 0
+    rec = sim.sdn_controller.recovery_records[0]
+    assert rec["recovery_time_ms"] > 0
+    assert rec["post_throughput_mbps"] > 0
+
+
+def test_static_vs_adaptive_routing_comparison():
+    """Verify that static routing sustains high loss on congestion while adaptive routing recovers."""
+    topo = build_scenario_topology("scenario_28_static_vs_adaptive")
+
+    # 1. Static Mode
+    sim_static = NetworkSimulation(topology=topo, seed=42, auto_reroute=False, routing_mode="static")
+    sim_static.run_until(3.0)
+    static_summary = sim_static.get_summary_metrics()
+    static_drops = static_summary["flows"]["flow_UDP_Source"]["total_drops_overflow"]
+    assert len(sim_static.reroute_history) == 0  # Static mode never reroutes
+    assert static_drops > 0                       # Sustained packet drops
+
+    # 2. Adaptive Mode
+    sim_adaptive = NetworkSimulation(topology=topo, seed=42, auto_reroute=True, routing_mode="adaptive")
+    sim_adaptive.run_until(3.0)
+    adaptive_summary = sim_adaptive.get_summary_metrics()
+
+    # Adaptive mode must execute dynamic rerouting and deliver higher useful goodput
+    assert len(sim_adaptive.reroute_history) > 0
+    assert sim_adaptive.flow_paths["flow_UDP_Source"] == ["UDP_Source", "Switch_Ingress", "R_Alternate", "Switch_Egress", "UDP_Dest"]
+    assert adaptive_summary["flows"]["flow_UDP_Source"]["useful_bytes_delivered"] > static_summary["flows"]["flow_UDP_Source"]["useful_bytes_delivered"]
+

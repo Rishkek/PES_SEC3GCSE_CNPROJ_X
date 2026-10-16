@@ -141,3 +141,68 @@ def test_api_cut_link_and_override_cwnd():
     # Step simulation after cable cut -> should divert traffic or process remaining
     step_resp = client.post(f"/api/v1/simulations/{sim_id}/step", json={"step_type": "event"})
     assert step_resp.status_code == 200
+
+
+def test_api_sdn_status_and_mode_toggle():
+    """Verify SDN status endpoint, mode toggle, and flow table retrieval."""
+    topo = build_scenario_topology("scenario_27_sdn_udp_reroute")
+    resp = client.post("/api/v1/simulations", json={
+        "topology": topo.model_dump(),
+        "seed": 42,
+        "auto_reroute": True,
+    })
+    sim_id = resp.json()["sim_id"]
+
+    # 1. Fetch SDN Status
+    sdn_resp = client.get(f"/api/v1/simulations/{sim_id}/sdn")
+    assert sdn_resp.status_code == 200
+    sdn_data = sdn_resp.json()
+    assert "flow_table" in sdn_data
+    assert "thresholds" in sdn_data
+    assert sdn_data["routing_mode"] == "adaptive"
+
+    # 2. Toggle Mode to Static
+    mode_resp = client.post(f"/api/v1/simulations/{sim_id}/sdn/mode", json={"mode": "static"})
+    assert mode_resp.status_code == 200
+    assert mode_resp.json()["routing_mode"] == "static"
+    assert mode_resp.json()["auto_reroute"] is False
+
+
+def test_api_sdn_thresholds_and_controlled_congestion():
+    """Verify threshold updates and injection of controlled congestion."""
+    topo = build_scenario_topology("scenario_27_sdn_udp_reroute")
+    resp = client.post("/api/v1/simulations", json={
+        "topology": topo.model_dump(),
+        "seed": 42,
+    })
+    sim_id = resp.json()["sim_id"]
+
+    # Update thresholds
+    thresh_resp = client.post(f"/api/v1/simulations/{sim_id}/sdn/thresholds", json={
+        "queue_threshold": 0.65,
+        "drop_rate_threshold": 0.04,
+    })
+    assert thresh_resp.status_code == 200
+    assert thresh_resp.json()["thresholds"]["queue_threshold"] == 65.0
+
+    # Inject controlled congestion
+    inject_resp = client.post(f"/api/v1/simulations/{sim_id}/sdn/inject_congestion", json={
+        "burst_rate_mbps": 30.0,
+        "duration_s": 2.0,
+    })
+    assert inject_resp.status_code == 200
+    assert inject_resp.json()["burst_rate_mbps"] == 30.0
+
+
+def test_api_sdn_compare():
+    """Verify head-to-head comparison between Static and Adaptive routing."""
+    resp = client.post("/api/v1/sdn/compare", json={"duration_s": 2.5, "seed": 42})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "static" in data
+    assert "adaptive" in data
+    assert data["static"]["routing_mode"] == "STATIC"
+    assert "ADAPTIVE" in data["adaptive"]["routing_mode"]
+    assert data["static"]["reroutes_count"] == 0
+    assert data["adaptive"]["reroutes_count"] > 0
+

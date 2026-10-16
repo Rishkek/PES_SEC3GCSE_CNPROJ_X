@@ -17,6 +17,10 @@ from .models import (
     OverrideCwndRequest,
     AddLinkRequest,
     UpdateTopologyRequest,
+    SDNModeRequest,
+    SDNThresholdsRequest,
+    InjectCongestionRequest,
+    SDNCompareRequest,
 )
 
 router = APIRouter()
@@ -379,3 +383,210 @@ def compare_protocols(req: CompareExperimentRequest):
         "seed": req.seed,
         "comparison": results,
     }
+
+
+# ============================================================================
+# Project 27: SDN Controller, UDP Traffic & Dynamic Rerouting Endpoints
+# ============================================================================
+
+@router.get("/simulations/{sim_id}/sdn")
+def get_sdn_status(sim_id: str):
+    """Retrieve SDN Controller Flow Table, Thresholds, and Recovery Records."""
+    sim = simulations.get(sim_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+
+    ctrl = sim.sdn_controller
+    return {
+        "sim_id": sim_id,
+        "routing_mode": ctrl.routing_mode,
+        "thresholds": {
+            "queue_threshold": round(ctrl.queue_threshold * 100.0, 1),
+            "utilization_threshold": round(ctrl.utilization_threshold * 100.0, 1),
+            "drop_rate_threshold": round(ctrl.drop_rate_threshold * 100.0, 1),
+            "latency_inflation_threshold": ctrl.latency_inflation_threshold,
+        },
+        "flow_table": ctrl.flow_table,
+        "overloaded_flows": list(ctrl.overloaded_flows.values()),
+        "recovery_records": ctrl.recovery_records,
+        "total_reroutes": len(sim.reroute_history),
+        "reroute_history": sim.reroute_history,
+    }
+
+
+@router.post("/simulations/{sim_id}/sdn/mode")
+def set_sdn_routing_mode(sim_id: str, req: SDNModeRequest):
+    """Switch SDN Controller between Adaptive Dynamic Rerouting and Static Routing."""
+    sim = simulations.get(sim_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+
+    mode = req.mode.lower()
+    if mode not in ("adaptive", "static"):
+        raise HTTPException(status_code=400, detail="Mode must be 'adaptive' or 'static'")
+
+    sim.sdn_controller.routing_mode = mode
+    sim.auto_reroute = (mode == "adaptive")
+
+    return {
+        "sim_id": sim_id,
+        "routing_mode": sim.sdn_controller.routing_mode,
+        "auto_reroute": sim.auto_reroute,
+        "message": f"SDN Controller routing mode set to '{mode.upper()}'",
+    }
+
+
+@router.post("/simulations/{sim_id}/sdn/thresholds")
+def set_sdn_thresholds(sim_id: str, req: SDNThresholdsRequest):
+    """Update SDN Controller programmable congestion detection thresholds."""
+    sim = simulations.get(sim_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+
+    ctrl = sim.sdn_controller
+    if req.queue_threshold is not None:
+        ctrl.queue_threshold = max(0.1, min(1.0, req.queue_threshold))
+    if req.utilization_threshold is not None:
+        ctrl.utilization_threshold = max(0.1, min(1.0, req.utilization_threshold))
+    if req.drop_rate_threshold is not None:
+        ctrl.drop_rate_threshold = max(0.01, min(1.0, req.drop_rate_threshold))
+    if req.latency_inflation_threshold is not None:
+        ctrl.latency_inflation_threshold = max(1.0, req.latency_inflation_threshold)
+
+    return {
+        "sim_id": sim_id,
+        "thresholds": {
+            "queue_threshold": round(ctrl.queue_threshold * 100.0, 1),
+            "utilization_threshold": round(ctrl.utilization_threshold * 100.0, 1),
+            "drop_rate_threshold": round(ctrl.drop_rate_threshold * 100.0, 1),
+            "latency_inflation_threshold": ctrl.latency_inflation_threshold,
+        },
+    }
+
+
+@router.post("/simulations/{sim_id}/sdn/inject_congestion")
+def inject_controlled_congestion(sim_id: str, req: InjectCongestionRequest):
+    """
+    Injects controlled high-rate UDP congestion burst on demand.
+    Saturates the primary path bottleneck to verify SDN threshold detection and rerouting.
+    """
+    sim = simulations.get(sim_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+
+    target_sender = None
+    if req.flow_id:
+        target_id = req.flow_id.replace("flow_", "")
+        target_sender = sim.nodes.get(target_id)
+    else:
+        # Default to first sender or Interferer
+        if "Interferer" in sim.nodes:
+            target_sender = sim.nodes["Interferer"]
+        else:
+            senders = [n for n in sim.nodes.values() if n.type == NodeType.SENDER]
+            if senders:
+                target_sender = senders[0]
+
+    if not target_sender:
+        raise HTTPException(status_code=400, detail="No suitable sender node found to inject congestion")
+
+    target_sender.udp_burst_enabled = True
+    target_sender.udp_burst_rate_mbps = req.burst_rate_mbps
+    target_sender.udp_burst_start_s = sim.sim_time
+    target_sender.udp_burst_duration_s = req.duration_s
+
+    return {
+        "sim_id": sim_id,
+        "target_node": target_sender.id,
+        "burst_rate_mbps": req.burst_rate_mbps,
+        "start_time": round(sim.sim_time, 3),
+        "duration_s": req.duration_s,
+        "message": f"Controlled congestion burst of {req.burst_rate_mbps} Mbps injected into {target_sender.id}!",
+    }
+
+
+@router.post("/sdn/compare")
+def compare_sdn_routing(req: SDNCompareRequest):
+    """
+    Executes a head-to-head comparison between Static Routing and Adaptive SDN Routing
+    under identical multi-path UDP traffic loads to measure recovery time and throughput.
+    """
+    duration = max(1.0, min(15.0, req.duration_s))
+    topo = build_scenario_topology("scenario_28_static_vs_adaptive")
+
+    # 1. Run Static Mode (No dynamic rerouting)
+    sim_static = NetworkSimulation(
+        topology=topo,
+        seed=req.seed,
+        auto_reroute=False,
+        routing_mode="static",
+    )
+    sim_static.run_until(duration)
+    static_summary = sim_static.get_summary_metrics()
+
+    # 2. Run Adaptive Mode (SDN Dynamic Rerouting)
+    sim_adaptive = NetworkSimulation(
+        topology=topo,
+        seed=req.seed,
+        auto_reroute=True,
+        routing_mode="adaptive",
+    )
+    sim_adaptive.run_until(duration)
+    adaptive_summary = sim_adaptive.get_summary_metrics()
+
+    # Extract flow metrics for UDP_Source
+    flow_key = "flow_UDP_Source"
+    static_flow = static_summary["flows"].get(flow_key, {})
+    adaptive_flow = adaptive_summary["flows"].get(flow_key, {})
+
+    return {
+        "duration_s": duration,
+        "seed": req.seed,
+        "static": {
+            "routing_mode": "STATIC",
+            "goodput_mbps": static_flow.get("avg_goodput_mbps", 0.0),
+            "delivered_bytes": static_flow.get("useful_bytes_delivered", 0),
+            "transmitted_bytes": static_flow.get("total_bytes_transmitted", 0),
+            "dropped_packets": static_flow.get("total_drops_overflow", 0),
+            "loss_rate_pct": round(
+                (static_flow.get("total_drops_overflow", 0) / max(1, (static_flow.get("total_bytes_transmitted", 0) // 1000))) * 100.0, 2
+            ),
+            "reroutes_count": len(sim_static.reroute_history),
+            "recovery_time_ms": None,
+            "path_history": [sim_static.flow_paths.get(flow_key, [])],
+            "snapshots": [
+                {
+                    "time": s["time"],
+                    "goodput_mbps": s["flows"].get(flow_key, {}).get("goodput_mbps", 0),
+                    "drops": s["flows"].get(flow_key, {}).get("total_drops_overflow", 0),
+                }
+                for s in sim_static.snapshots
+            ],
+        },
+        "adaptive": {
+            "routing_mode": "ADAPTIVE (SDN)",
+            "goodput_mbps": adaptive_flow.get("avg_goodput_mbps", 0.0),
+            "delivered_bytes": adaptive_flow.get("useful_bytes_delivered", 0),
+            "transmitted_bytes": adaptive_flow.get("total_bytes_transmitted", 0),
+            "dropped_packets": adaptive_flow.get("total_drops_overflow", 0),
+            "loss_rate_pct": round(
+                (adaptive_flow.get("total_drops_overflow", 0) / max(1, (adaptive_flow.get("total_bytes_transmitted", 0) // 1000))) * 100.0, 2
+            ),
+            "reroutes_count": len(sim_adaptive.reroute_history),
+            "recovery_records": sim_adaptive.sdn_controller.recovery_records,
+            "latest_recovery_time_ms": (
+                sim_adaptive.sdn_controller.recovery_records[0]["recovery_time_ms"]
+                if sim_adaptive.sdn_controller.recovery_records else None
+            ),
+            "path_history": sim_adaptive.reroute_history,
+            "snapshots": [
+                {
+                    "time": s["time"],
+                    "goodput_mbps": s["flows"].get(flow_key, {}).get("goodput_mbps", 0),
+                    "drops": s["flows"].get(flow_key, {}).get("total_drops_overflow", 0),
+                }
+                for s in sim_adaptive.snapshots
+            ],
+        },
+    }
+

@@ -24,6 +24,7 @@ class Packet(BaseModel):
     seq_num: int
     size_bytes: int = 1000
     created_time: float
+    protocol: str = "tcp"  # "tcp" or "udp"
     is_ack: bool = False
     ack_num: int = 0
     is_dup_ack: bool = False
@@ -49,10 +50,15 @@ class NodeConfig(BaseModel):
     ecn_threshold: float = 0.7  # 70% occupancy triggers ECN CE marking
     
     # Sender properties
-    protocol: str = "reno"     # "tahoe", "reno", "cubic"
-    mss: int = 1000           # bytes
-    initial_cwnd: float = 1.0 # in MSS
-    initial_ssthresh: float = 32.0 # in MSS
+    protocol: str = "udp"     # "udp", "reno", "tahoe", "cubic"
+    mss: int = 1000           # bytes (packet payload size)
+    udp_rate_mbps: float = 10.0 # UDP transmission rate in Mbps
+    udp_burst_enabled: bool = False
+    udp_burst_rate_mbps: float = 25.0 # Spike rate for controlled congestion
+    udp_burst_start_s: float = 2.0
+    udp_burst_duration_s: float = 1.0
+    initial_cwnd: float = 1.0 # in MSS (for TCP)
+    initial_ssthresh: float = 32.0 # in MSS (for TCP)
     max_cwnd: float = 128.0   # in MSS
     app_rate_bps: float = 0.0 # 0 = infinite backlog / greedy sender
     app_rate_unit: str = "mbps" # "mbps", "pkts_per_sec", "greedy"
