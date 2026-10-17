@@ -425,9 +425,9 @@ pytest -o pythonpath=backend backend/tests
 
 ---
 
-### ⚡ Option A: Windows 1-Click Executables (`setup.exe` & `run.exe`)
+### ⚡ Option A: Windows 1-Click Executables (`setup.exe`, `run.exe`, `push.exe`)
 
-For Windows systems, two native standalone executables are provided in the project root:
+For Windows systems, native standalone executables are provided in the project root:
 
 #### 1. First-Time Setup (`setup.exe`)
 * **Double-click `setup.exe`** (or execute `.\setup.exe`).
@@ -446,6 +446,15 @@ For Windows systems, two native standalone executables are provided in the proje
   - 🌐 Starts the Vite + React frontend (`http://localhost:5173`).
   - 💻 Opens your default web browser to the interactive UI.
   - 🛑 Monitors processes with interactive controls (`Q` to cleanly stop all servers, `O` to re-open browser, `B` to open Swagger docs).
+
+#### 3. Publishing to GitHub (`push.exe`)
+* **Double-click `push.exe`** (or execute `.\push.exe`).
+* The publisher automatically:
+  - 🔍 Connects to the target repository: `https://github.com/Rishkek/PES_SEC3GCSE_CNPROJ_X`
+  - 📝 Displays current pending changes and unpushed commits.
+  - 💬 Prompts for a commit message in the terminal.
+  - ❓ Displays a confirmation summary and asks for `(y/n)` confirmation before committing or pushing.
+  - 🚀 Stages files, creates the commit, and pushes to GitHub with real-time feedback.
 
 ---
 
